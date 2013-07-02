@@ -19,6 +19,7 @@ import time
 import errno
 import http.client
 import urllib.request, urllib.error, urllib.parse
+import email.generator
 import io
 from hashlib import md5
 from threading import RLock
@@ -38,7 +39,7 @@ def locked_function(origfunc):
 def calculate_cache_path(cache_location, url):
     """Checks if [cache_location]/[hash_of_url].headers and .body exist
     """
-    thumb = md5(url).hexdigest()
+    thumb = md5(url.encode("utf-8")).hexdigest()
     header = os.path.join(cache_location, thumb + ".headers")
     body = os.path.join(cache_location, thumb + ".body")
     return header, body
@@ -76,12 +77,23 @@ def store_in_cache(cache_location, url, response):
     hpath, bpath = calculate_cache_path(cache_location, url)
     try:
         outf = open(hpath, "wb")
-        headers = str(response.info())
-        outf.write(headers)
+
+        # ugly hack to avoid AttributeError
+        # http.client.HTTPMessage().policy is <class '_io.StringIO'>, it should be <class 'email._policybase.Compat32'>
+        fp = io.StringIO()
+        from email._policybase import compat32
+        g = email.generator.Generator(fp, policy=compat32)
+        g.flatten(response.info())
+        headers = fp.getvalue()
+
+        outf.write(headers.encode("utf-8"))
         outf.close()
 
         outf = open(bpath, "wb")
-        outf.write(response.read())
+        r = response.read()
+        if isinstance(r, str):
+            r = r.encode("utf-8")
+        outf.write(r)
         outf.close()
     except IOError:
         return True
@@ -180,14 +192,14 @@ class CachedResponse(io.StringIO):
         self.cache_location = cache_location
         hpath, bpath = calculate_cache_path(cache_location, url)
 
-        io.StringIO.__init__(self, file(bpath, "rb").read())
+        io.StringIO.__init__(self, open(bpath, "rb").read().decode("utf-8"))
 
         self.url     = url
         self.code    = 200
         self.msg     = "OK"
-        headerbuf = file(hpath, "rb").read()
+        headerbuf = open(hpath, "rb").read().decode("utf-8")
         if set_cache_header:
-            headerbuf += "x-local-cache: %s\r\n" % (bpath)
+            headerbuf += "x-local-cache: %s\r\n" % bpath
         self.headers = http.client.HTTPMessage(io.StringIO(headerbuf))
 
     def info(self):
