@@ -18,7 +18,7 @@ import os
 import time
 import errno
 import http.client
-import urllib.request, urllib.error, urllib.parse
+import urllib.request
 import email.generator
 import io
 from hashlib import md5
